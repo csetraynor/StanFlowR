@@ -119,30 +119,54 @@ real_is_integer <- function(x) {
   all(floor(x) == x)
 }
 
-#' Write objects in Stan rdump format
+#' Write objects in Stan rdump or JSON format
 #'
-#' Writes R objects (vectors, matrices, arrays) in the Stan rdump text format
-#' suitable for CmdStan's \code{data file=} argument.
+#' Writes R objects (vectors, matrices, arrays) in Stan rdump text format or
+#' JSON format suitable for CmdStan's \code{data file=} and \code{init=} arguments.
 #'
 #' @param list Character vector of object names to dump.
 #' @param file Output file path (default \code{""} for stdout).
-#' @param append Logical; append to existing file?
+#' @param append Logical; append to existing file? (rdump only)
 #' @param envir Environment from which to retrieve objects.
-#' @param width Line width for formatting.
+#' @param width Line width for formatting (rdump only).
 #' @param quiet Logical; suppress warnings?
-#' @return Invisibly, a character vector of names that required dimension info.
+#' @param format Output format: \code{"json"} (default) or \code{"rdump"}.
+#' @return Invisibly, a character vector of valid names written.
 #' @export
 new_stanrdump <- function(list, file = "", append = FALSE, envir = parent.frame(),
-                          width = options("width")$width, quiet = FALSE) {
-  if (is.character(file)) {
-    ex <- sapply(list, exists, envir = envir)
-    if (!all(ex)) {
-      notfound_list <- list[!ex]
-      if (!quiet)
-        warning("objects not found: ", paste(notfound_list, collapse = ", "))
+                          width = options("width")$width, quiet = FALSE,
+                          format = c("json", "rdump")) {
+  format <- match.arg(format)
+
+  ex <- sapply(list, exists, envir = envir)
+  if (!all(ex)) {
+    notfound_list <- list[!ex]
+    if (!quiet)
+      warning("objects not found: ", paste(notfound_list, collapse = ", "))
+  }
+  list <- list[ex]
+  if (length(list) == 0L) return(invisible(character()))
+
+  for (x in list) {
+    if (!is_legal_stan_vname(x) && !quiet)
+      warning("variable name ", x, " is not allowed in Stan")
+  }
+
+  if (format == "json") {
+    out_file <- file
+    if (nzchar(out_file)) {
+      out_file <- sub("\\.(R|rdump)$", ".json", out_file)
     }
-    list <- list[ex]
-    if (!any(ex)) return(invisible(character()))
+    data_list <- setNames(
+      lapply(list, function(v) get(v, envir = envir)),
+      list
+    )
+    write_stan_json(data_list, file = out_file)
+    return(invisible(list))
+  }
+
+  # --- rdump path ---
+  if (is.character(file)) {
     if (nzchar(file)) {
       file <- file(file, ifelse(append, "a", "w"))
       on.exit(close(file), add = TRUE)
@@ -150,10 +174,7 @@ new_stanrdump <- function(list, file = "", append = FALSE, envir = parent.frame(
       file <- stdout()
     }
   }
-  for (x in list) {
-    if (!is_legal_stan_vname(x) && !quiet)
-      warning("variable name ", x, " is not allowed in Stan")
-  }
+
   l2 <- NULL
   addnlpat <- paste0("(.{1,", width, "})(\\s|$)")
   for (v in list) {
@@ -184,7 +205,7 @@ new_stanrdump <- function(list, file = "", append = FALSE, envir = parent.frame(
         next
       }
       str <- paste0(v, " <- \nc(", paste(vv, collapse = ", "), ")")
-      str <- gsub(addnlpat, "\\1\n", str)
+      str <- gsub(addnlpat, "\\1\n", str, perl = TRUE)
       cat(str, file = file)
       l2 <- c(l2, v)
       next
@@ -198,7 +219,7 @@ new_stanrdump <- function(list, file = "", append = FALSE, envir = parent.frame(
       } else {
         str <- paste0("structure(c(", paste(as.vector(vv), collapse = ", "), "),")
       }
-      str <- gsub(addnlpat, "\\1\n", str)
+      str <- gsub(addnlpat, "\\1\n", str, perl = TRUE)
       cat(str, ".Dim = c(", paste(vvdim, collapse = ", "), "))\n",
           file = file, sep = "")
       next
