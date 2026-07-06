@@ -45,7 +45,7 @@
     data <- file.path(getwd(), "Models", modelName, "data", paste0(modelName, ".data.R"))
   }
 
-  model <- get_model_file(modelName)
+  model <- file.path(get_model_file(modelName), modelName)
 
   list(SEED = SEED, init_file = init_file, data = data, model = model)
 }
@@ -201,6 +201,6 @@ get_init_file <- function(modelName, modelDir = "Models", chain, tag,
 #' @return Directory path containing the model executable.
 #' @noRd
 get_model_file <- function(modelName, modelDir = "Models") {
-  file.path(getwd(), modelDir, modelName, "model", modelName)
+  file.path(getwd(), modelDir, modelName, "model", modelName )
 }
 
