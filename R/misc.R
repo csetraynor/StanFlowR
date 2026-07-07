@@ -31,34 +31,79 @@ edit_model <- function(mod_name) {
 }
 
 
-#' Write data in Stan JSON format
+#' Recursively convert a matrix or array to row-major nested lists
 #'
-#' Writes a named list of data to a JSON file suitable for CmdStan input.
+#' @param x A matrix or array.
+#' @return A nested list suitable for row-major JSON serialization.
+#' @noRd
+.array_to_list <- function(x) {
+  d <- dim(x)
+  if (length(d) == 2) {
+    lapply(seq_len(d[1L]), function(i) {
+      row <- x[i, , drop = TRUE]
+      if (is.integer(x)) as.list(as.integer(row)) else as.list(as.double(row))
+    })
+  } else {
+    lapply(seq_len(d[1L]), function(i) {
+      idx <- c(list(i), replicate(length(d) - 1L, TRUE, simplify = FALSE),
+               list(drop = FALSE))
+      sub_x <- do.call(`[`, c(list(x), idx))
+      dim(sub_x) <- d[-1L]
+      .array_to_list(sub_x)
+    })
+  }
+}
+
+#' Write data or initial values to JSON for CmdStan
 #'
-#' @param data A named list of R objects (numeric vectors, matrices, data.frames, logicals, or lists).
-#' @param file Path to the output JSON file.
+#' Writes a named list of R objects to a JSON file compatible with CmdStan's
+#' \code{data file=} and \code{init=} arguments.
+#'
+#' @param data A named list of R objects (scalars, vectors, matrices, arrays).
+#' @param file Output file path. Use \code{""} for stdout.
+#' @return Invisibly returns the file path.
+#' @details
+#' Type handling:
+#' \itemize{
+#'   \item Scalars are written as JSON scalars (not length-1 arrays)
+#'   \item Logical values are converted to integers (0/1)
+#'   \item Factors are converted to integers
+#'   \item Matrices are written as 2D arrays (list of row vectors) matching
+#'     CmdStan's row-major expectation
+#'   \item Arrays of dimension > 2 are written as nested lists following
+#'     row-major ordering
+#'   \item Data frames are converted via \code{data.matrix()}
+#' }
+#' @importFrom jsonlite toJSON
 #' @export
 write_stan_json <- function(data, file) {
-  if (!is.character(file) || !nzchar(file)) {
-    stop("The supplied filename is invalid!", call. = FALSE)
+  if (!is.list(data)) {
+    stop("'data' must be a named list.", call. = FALSE)
   }
-  for (var_name in names(data)) {
-    var <- data[[var_name]]
-    if (!(is.numeric(var) || is.factor(var) || is.logical(var) ||
-          is.data.frame(var) || is.list(var))) {
-      stop("Variable '", var_name, "' is of invalid type.", call. = FALSE)
-    }
-    if (is.logical(var)) {
-      mode(var) <- "integer"
-    } else if (is.data.frame(var)) {
-      var <- data.matrix(var)
-    } else if (is.list(var)) {
-      var <- list_to_array(var, var_name)
-    }
-    data[[var_name]] <- var
+  if (length(data) > 0L &&
+      (is.null(names(data)) || any(!nzchar(names(data))))) {
+    stop("All elements of 'data' must be named.", call. = FALSE)
   }
-  jsonlite::write_json(data, path = file, auto_unbox = TRUE,
-                       factor = "integer", digits = NA, pretty = TRUE)
+
+  prep_element <- function(x) {
+    if (is.logical(x)) {
+      x <- as.integer(x)
+    } else if (is.factor(x)) {
+      x <- as.integer(x)
+    } else if (is.data.frame(x)) {
+      x <- data.matrix(x)
+    }
+    if (!is.null(dim(x)) && length(dim(x)) >= 2L) {
+      x <- .array_to_list(x)
+    }
+    x
+  }
+
+  data <- lapply(data, prep_element)
+
+  cat(jsonlite::toJSON(data, auto_unbox = TRUE, digits = NA, pretty = TRUE),
+      "\n", file = file, sep = "")
+  invisible(file)
 }
 
 #' Convert a list of same-dimension arrays to a higher-dimensional array

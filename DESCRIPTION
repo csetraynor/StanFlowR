@@ -16,3 +16,11 @@ BugReports: https://github.com/csetraynor/StanFlowR/issues
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
+Imports:
+    jsonlite (>= 1.7.0),
+    coda,
+    data.table,
+    posterior
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
